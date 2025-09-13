@@ -78,7 +78,7 @@ app.get("/", (req, res) => {
 
 //  REGISTER
 app.post("/auth/register", upload.single("image"), async (req, res) => {
-  const { email, password, name, phoneNumber, role } = req.body;
+  const { email, password, name, role } = req.body;
   if (!email || !password || !name)
     return res.status(400).json({ error: "All fields are required" });
 
@@ -97,8 +97,8 @@ app.post("/auth/register", upload.single("image"), async (req, res) => {
 
     // Insert user
     const insertedUser = await sql`
-      INSERT INTO users (email, password, name, profile_image_url, phone_number, role)
-      VALUES (${email}, ${hashedPassword}, ${name}, ${imageUrl}, ${phoneNumber}, ${role})
+      INSERT INTO users (email, password, name, profile_image_url, role)
+      VALUES (${email}, ${hashedPassword}, ${name}, ${imageUrl}, ${role})
       RETURNING *
     `;
     const user = insertedUser[0];
@@ -164,10 +164,6 @@ app.put(
       if (email) {
         updates.push(`email = $${idx++}`);
         values.push(email);
-      }
-      if (phoneNumber) {
-        updates.push(`phone_number = $${idx++}`);
-        values.push(phoneNumber);
       }
 
       let imageUrl;
