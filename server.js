@@ -330,66 +330,39 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
 
 // --- Farm Rentals ---
 // Add rental (farm or equipment)
-app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
-  if (req.user.role !== "farmer")
-    return res.status(403).json({ error: "Only farmers can book rentals" });
+app.post(
+  "/rentals/add",
+  authenticateToken,
+  upload.single("image"),
+  async (req, res) => {
+    if (req.user.role !== "farmer")
+      return res.status(403).json({ error: "Only farmers can list rentals" });
 
-  const { start_date, end_date } = req.body;
-  if (!start_date || !end_date)
-    return res.status(400).json({ error: "Start and end dates required" });
-
-  try {
-    const rentals = await sql`SELECT * FROM rentals WHERE id = ${req.params.id}`;
-    const rental = rentals[0];
-    if (!rental) return res.status(404).json({ error: "Rental not found" });
-
-    // Check if rental is already booked during requested time
-    const conflicts = await sql`
-      SELECT * FROM bookings
-      WHERE rental_id = ${rental.id}
-      AND status = 'active'
-      AND (start_date, end_date) OVERLAPS (${start_date}::date, ${end_date}::date)
-    `;
-    if (conflicts.length > 0) {
+    const { type, name, description, price, location } = req.body;
+    if (!type || !["farm", "equipment"].includes(type)) {
       return res
         .status(400)
-        .json({ error: "Rental not available for selected dates" });
+        .json({ error: 'Type must be "farm" or "equipment"' });
     }
+    if (!name || !price)
+      return res.status(400).json({ error: "Name and price required" });
 
-    // Calculate days
-    const days = Math.ceil(
-      (new Date(end_date) - new Date(start_date)) / (1000 * 60 * 60 * 24)
-    );
+    try {
+      let imageUrl = null;
+      if (req.file) imageUrl = await uploadImage(req.file);
 
-    // --- Cost calculation ---
-    let totalCost = 0;
-    if (rental.price_per_day) {
-      totalCost = days * rental.price_per_day;
-    } else if (rental.price_per_month) {
-      const months = Math.ceil(days / 30);
-      totalCost = months * rental.price_per_month;
-    } else if (rental.price_per_hour) {
-      const hours = days * 24;
-      totalCost = hours * rental.price_per_hour;
+    const rental = await sql`
+  INSERT INTO rentals (owner_id, type, name, description, price, location, image_url)
+  VALUES (${req.user.id}, ${type}, ${name}, ${description}, ${price}, ${location}, ${imageUrl})
+  RETURNING *
+`;
+
+      res.status(201).json(rental[0]);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
-
-    const booking = await sql`
-      INSERT INTO bookings (rental_id, farmer_id, start_date, end_date, total_cost)
-      VALUES (${rental.id}, ${req.user.id}, ${start_date}, ${end_date}, ${totalCost})
-      RETURNING *
-    `;
-
-    // Notify owner
-    await sql`
-      INSERT INTO notifications (user_id, message)
-      VALUES (${rental.owner_id}, 'Your ${rental.type} "${rental.name}" has been booked from ${start_date} to ${end_date}.')
-    `;
-
-    res.status(201).json(booking[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+);
 
 
 // List rentals (both farms and equipment, with filter option)
@@ -409,50 +382,84 @@ app.get("/rentals/list", async (req, res) => {
   }
 });
 
+
 // Book rental with duration
 app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
   if (req.user.role !== "farmer")
     return res.status(403).json({ error: "Only farmers can book rentals" });
 
-  const { start_date, end_date } = req.body;
-  if (!start_date || !end_date)
-    return res.status(400).json({ error: "Start and end dates required" });
+  const { start_date, start_time, end_date, end_time } = req.body;
+  if (!start_date || !start_time || !end_date || !end_time) {
+    return res
+      .status(400)
+      .json({ error: "Start and end date + time required" });
+  }
 
   try {
+    // Combine date + time into proper timestamps for calculations
+    const start_datetime = new Date(`${start_date}T${start_time}:00`);
+    const end_datetime = new Date(`${end_date}T${end_time}:00`);
+
+    if (isNaN(start_datetime) || isNaN(end_datetime)) {
+      return res.status(400).json({ error: "Invalid date or time format" });
+    }
+    if (end_datetime <= start_datetime) {
+      return res
+        .status(400)
+        .json({ error: "End time must be after start time" });
+    }
+
     const rentals =
       await sql`SELECT * FROM rentals WHERE id = ${req.params.id}`;
     const rental = rentals[0];
     if (!rental) return res.status(404).json({ error: "Rental not found" });
 
-    // Check if rental is already booked during requested time
+    // Conflict check using date + time as full timestamp
     const conflicts = await sql`
       SELECT * FROM bookings
       WHERE rental_id = ${rental.id}
       AND status = 'active'
-      AND (start_date, end_date) OVERLAPS (${start_date}::date, ${end_date}::date)
+      AND (start_date + start_time, end_date + end_time)
+          OVERLAPS (${start_datetime}::timestamp, ${end_datetime}::timestamp)
     `;
     if (conflicts.length > 0) {
-      return res
-        .status(400)
-        .json({ error: "Rental not available for selected dates" });
+      return res.status(400).json({
+        error: "Rental not available for selected time",
+      });
     }
 
-    // Calculate total cost (price per day * number of days)
-    const days = Math.ceil(
-      (new Date(end_date) - new Date(start_date)) / (1000 * 60 * 60 * 24)
-    );
-    const totalCost = days * rental.price;
+    // --- Duration calculation ---
+    const diffMs = end_datetime - start_datetime;
+    const hours = diffMs / (1000 * 60 * 60);
+    const days = diffMs / (1000 * 60 * 60 * 24);
 
+    // --- Cost calculation ---
+    let totalCost = 0;
+    if (rental.price_per_hour) {
+      totalCost = Math.ceil(hours) * rental.price_per_hour;
+    } else if (rental.price_per_day) {
+      totalCost = Math.ceil(days) * rental.price_per_day;
+    } else if (rental.price_per_month) {
+      const months = Math.ceil(days / 30);
+      totalCost = months * rental.price_per_month;
+    }
+
+    // Save booking
     const booking = await sql`
-      INSERT INTO bookings (rental_id, farmer_id, start_date, end_date, total_cost)
-      VALUES (${rental.id}, ${req.user.id}, ${start_date}, ${end_date}, ${totalCost})
+      INSERT INTO bookings 
+        (rental_id, farmer_id, start_date, start_time, end_date, end_time, total_cost)
+      VALUES 
+        (${rental.id}, ${req.user.id}, ${start_date}, ${start_time}, ${end_date}, ${end_time}, ${totalCost})
       RETURNING *
     `;
 
     // Notify owner
     await sql`
       INSERT INTO notifications (user_id, message)
-      VALUES (${rental.owner_id}, 'Your ${rental.type} "${rental.name}" has been booked from ${start_date} to ${end_date}.')
+      VALUES (
+        ${rental.owner_id}, 
+        'Your ${rental.type} "${rental.name}" has been booked from ${start_date} ${start_time} to ${end_date} ${end_time}.'
+      )
     `;
 
     res.status(201).json(booking[0]);
@@ -460,6 +467,8 @@ app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
 
 // --- Notifications ---
 
