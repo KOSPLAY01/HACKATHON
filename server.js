@@ -335,27 +335,65 @@ app.post(
   authenticateToken,
   upload.single("image"),
   async (req, res) => {
-    if (req.user.role !== "farmer")
+    if (req.user.role !== "farmer") {
       return res.status(403).json({ error: "Only farmers can list rentals" });
+    }
 
-    const { type, name, description, price, location } = req.body;
+    const {
+      type,
+      name,            
+      description,
+      location,
+      price_per_day,
+      price_per_hour,
+      price_per_month,
+    } = req.body;
+
+    // Validate type
     if (!type || !["farm", "equipment"].includes(type)) {
       return res
         .status(400)
-        .json({ error: 'Type must be "farm" or "equipment"' });
+        .json({ error: 'Type must be either "farm" or "equipment"' });
     }
-    if (!name || !price)
-      return res.status(400).json({ error: "Name and price required" });
+
+    // Validate required fields
+    if (!name || !description || !location || !price_per_day) {
+      return res
+        .status(400)
+        .json({ error: "Name, description, location and price per day are required" });
+    }
 
     try {
       let imageUrl = null;
-      if (req.file) imageUrl = await uploadImage(req.file);
+      if (req.file) {
+        imageUrl = await uploadImage(req.file); // e.g. Cloudinary or S3
+      }
 
-    const rental = await sql`
-  INSERT INTO rentals (owner_id, type, name, description, price, location, image_url)
-  VALUES (${req.user.id}, ${type}, ${name}, ${description}, ${price}, ${location}, ${imageUrl})
-  RETURNING *
-`;
+      const rental = await sql`
+        INSERT INTO rentals (
+          owner_id,
+          type,
+          name,
+          description,
+          location,
+          price_per_day,
+          price_per_hour,
+          price_per_month,
+          image_url
+        )
+        VALUES (
+          ${req.user.id},
+          ${type},
+          ${name},
+          ${description},
+          ${location},
+          ${price_per_day},
+          ${price_per_hour || null},
+          ${price_per_month || null},
+          ${imageUrl}
+        )
+        RETURNING *
+      `;
 
       res.status(201).json(rental[0]);
     } catch (err) {
