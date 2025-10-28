@@ -316,6 +316,17 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
       RETURNING *
     `;
 
+    // Record the investor's contribution (requires investments table)
+    try {
+      await sql`
+        INSERT INTO investments (investor_id, project_id, amount, created_at)
+        VALUES (${req.user.id}, ${project.id}, ${amount}, now())
+      `;
+    } catch (e) {
+      // If investments table doesn't exist, log and continue - funding still updates project
+      console.warn("Could not insert into investments table:", e.message);
+    }
+
     // Notify farmer
     const notifyMsg = `Your project "${project.project_title}" has received funding of $${amount}`;
     await sql`
@@ -359,11 +370,9 @@ app.post(
 
     // Validate required fields
     if (!name || !description || !location || !price_per_day) {
-      return res
-        .status(400)
-        .json({
-          error: "Name, description, location and price per day are required",
-        });
+      return res.status(400).json({
+        error: "Name, description, location and price per day are required",
+      });
     }
 
     try {
@@ -548,6 +557,27 @@ app.get("/investor/my-projects", authenticateToken, async (req, res) => {
       SELECT * FROM projects WHERE farmer_id = ${req.user.id} ORDER BY created_at DESC
     `;
     res.json(projects);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Investor: Get my investments
+app.get("/investor/my-investments", authenticateToken, async (req, res) => {
+  if (req.user.role !== "investor")
+    return res
+      .status(403)
+      .json({ error: "Only investors can view their investments" });
+
+  try {
+    const investments = await sql`
+      SELECT i.*, p.project_title, p.description, p.farmer_id
+      FROM investments i
+      JOIN projects p ON i.project_id = p.id
+      WHERE i.investor_id = ${req.user.id}
+      ORDER BY i.created_at DESC
+    `;
+    res.json(investments);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
