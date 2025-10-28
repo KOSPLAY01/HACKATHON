@@ -317,9 +317,10 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
     `;
 
     // Notify farmer
+    const notifyMsg = `Your project "${project.project_title}" has received funding of $${amount}`;
     await sql`
       INSERT INTO notifications (user_id, message)
-      VALUES (${project.farmer_id}, 'Your project "${project.project_title}" has received funding of $${amount}')
+      VALUES (${project.farmer_id}, ${notifyMsg})
     `;
 
     res.json(updated[0]);
@@ -341,7 +342,7 @@ app.post(
 
     const {
       type,
-      name,            
+      name,
       description,
       location,
       price_per_day,
@@ -360,7 +361,9 @@ app.post(
     if (!name || !description || !location || !price_per_day) {
       return res
         .status(400)
-        .json({ error: "Name, description, location and price per day are required" });
+        .json({
+          error: "Name, description, location and price per day are required",
+        });
     }
 
     try {
@@ -402,7 +405,6 @@ app.post(
   }
 );
 
-
 // List rentals (both farms and equipment, with filter option)
 app.get("/rentals/list", async (req, res) => {
   const { type } = req.query; // optional filter
@@ -419,7 +421,6 @@ app.get("/rentals/list", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // Book rental with duration
 app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
@@ -492,12 +493,10 @@ app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
     `;
 
     // Notify owner
+    const bookingNotify = `Your ${rental.type} "${rental.name}" has been booked from ${start_date} ${start_time} to ${end_date} ${end_time}.`;
     await sql`
       INSERT INTO notifications (user_id, message)
-      VALUES (
-        ${rental.owner_id}, 
-        'Your ${rental.type} "${rental.name}" has been booked from ${start_date} ${start_time} to ${end_date} ${end_time}.'
-      )
+      VALUES (${rental.owner_id}, ${bookingNotify})
     `;
 
     res.status(201).json(booking[0]);
@@ -505,8 +504,6 @@ app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-
 
 // --- Notifications ---
 
@@ -537,14 +534,14 @@ app.put("/notifications/:id/read", authenticateToken, async (req, res) => {
   }
 });
 
-
-
 // --- DASHBOARD ENDPOINTS ---
 
 // Farmer: Get my projects
 app.get("/investor/my-projects", authenticateToken, async (req, res) => {
-  if (req.user.role !== "farmer") 
-    return res.status(403).json({ error: "Only farmers can view their projects" });
+  if (req.user.role !== "farmer")
+    return res
+      .status(403)
+      .json({ error: "Only farmers can view their projects" });
 
   try {
     const projects = await sql`
@@ -558,8 +555,10 @@ app.get("/investor/my-projects", authenticateToken, async (req, res) => {
 
 // Farmer: Get my rentals
 app.get("/rentals/my-listings", authenticateToken, async (req, res) => {
-  if (req.user.role !== "farmer") 
-    return res.status(403).json({ error: "Only farmers can view their rentals" });
+  if (req.user.role !== "farmer")
+    return res
+      .status(403)
+      .json({ error: "Only farmers can view their rentals" });
 
   try {
     const rentals = await sql`
@@ -573,8 +572,10 @@ app.get("/rentals/my-listings", authenticateToken, async (req, res) => {
 
 // Farmer: Get my bookings
 app.get("/bookings/my-bookings", authenticateToken, async (req, res) => {
-  if (req.user.role !== "farmer") 
-    return res.status(403).json({ error: "Only farmers can view their bookings" });
+  if (req.user.role !== "farmer")
+    return res
+      .status(403)
+      .json({ error: "Only farmers can view their bookings" });
 
   try {
     const bookings = await sql`
@@ -590,7 +591,6 @@ app.get("/bookings/my-bookings", authenticateToken, async (req, res) => {
   }
 });
 
-
 // --- ADMIN DASHBOARD ENDPOINTS ---
 
 // Admin: Get all users
@@ -599,7 +599,8 @@ app.get("/admin/users", authenticateToken, async (req, res) => {
     return res.status(403).json({ error: "Only admins can view all users" });
 
   try {
-    const users = await sql`SELECT id, name, email, role, phone_number, created_at FROM users ORDER BY created_at DESC`;
+    const users =
+      await sql`SELECT id, name, email, role, phone_number, created_at FROM users ORDER BY created_at DESC`;
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -664,7 +665,9 @@ app.get("/admin/bookings", authenticateToken, async (req, res) => {
 // Admin: Get all notifications
 app.get("/admin/notifications", authenticateToken, async (req, res) => {
   if (req.user.role !== "admin")
-    return res.status(403).json({ error: "Only admins can view all notifications" });
+    return res
+      .status(403)
+      .json({ error: "Only admins can view all notifications" });
 
   try {
     const notifications = await sql`
@@ -679,9 +682,6 @@ app.get("/admin/notifications", authenticateToken, async (req, res) => {
   }
 });
 
-
-
 app.listen(process.env.PORT || 3000, () => {
   console.log(`Server running on port ${process.env.PORT || 3000}`);
 });
-
