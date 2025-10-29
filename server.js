@@ -309,6 +309,55 @@ app.post("/auth/reset-password", async (req, res) => {
   }
 });
 
+
+// User Dashboard Stats
+app.get("/user/stats", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const role = req.user.role;
+
+    if (role === "farmer") {
+      const [rentals, projects, bookings, rentalEarnings, fundsRaised] = await Promise.all([
+        sql`SELECT COUNT(*) FROM rentals WHERE owner_id = ${userId}`,
+        sql`SELECT COUNT(*) FROM projects WHERE farmer_id = ${userId}`,
+        sql`SELECT COUNT(*) FROM bookings WHERE rental_id IN (SELECT id FROM rentals WHERE owner_id = ${userId})`,
+        sql`SELECT COALESCE(SUM(total_cost), 0) FROM bookings WHERE rental_id IN (SELECT id FROM rentals WHERE owner_id = ${userId})`,
+        sql`SELECT COALESCE(SUM(amount_raised), 0) FROM projects WHERE farmer_id = ${userId}`,
+      ]);
+
+      return res.json({
+        role,
+        total_rentals: Number(rentals[0].count),
+        total_projects: Number(projects[0].count),
+        total_bookings: Number(bookings[0].count),
+        total_earnings: Number(rentalEarnings[0].coalesce || rentalEarnings[0].sum || 0),
+        total_funds_raised: Number(fundsRaised[0].coalesce || fundsRaised[0].sum || 0),
+      });
+    }
+
+    if (role === "investor") {
+      const [investments, totalInvested, uniqueProjects] = await Promise.all([
+        sql`SELECT COUNT(*) FROM investments WHERE investor_id = ${userId}`,
+        sql`SELECT COALESCE(SUM(amount), 0) FROM investments WHERE investor_id = ${userId}`,
+        sql`SELECT COUNT(DISTINCT project_id) FROM investments WHERE investor_id = ${userId}`,
+      ]);
+
+      return res.json({
+        role,
+        total_investments: Number(investments[0].count),
+        total_amount_invested: Number(totalInvested[0].coalesce || totalInvested[0].sum || 0),
+        total_projects_invested: Number(uniqueProjects[0].count),
+      });
+    }
+
+    res.status(400).json({ error: "Invalid user role for dashboard stats" });
+  } catch (err) {
+    console.error("User stats error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
 // INVESTOR MARKETPLACE
 
 // Create Project
@@ -350,6 +399,75 @@ app.post(
     }
   }
 );
+
+// Update project
+app.put(
+  "/investor/projects/:id",
+  authenticateToken,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { project_title, description, funding_goal, status } = req.body;
+
+      // Check ownership
+      const existing = await sql`
+        SELECT * FROM projects WHERE id = ${id} AND farmer_id = ${req.user.id}
+      `;
+      if (existing.length === 0) {
+        return res
+          .status(404)
+          .json({ error: "Project not found or not owned by you" });
+      }
+
+      let imageUrl = existing[0].image_url;
+      if (req.file) {
+        imageUrl = await uploadImage(req.file);
+      }
+
+      const updated = await sql`
+        UPDATE projects
+        SET
+          project_title = ${project_title || existing[0].project_title},
+          description = ${description || existing[0].description},
+          funding_goal = ${funding_goal ? Number(funding_goal) : existing[0].funding_goal},
+          status = ${status || existing[0].status},
+          image_url = ${imageUrl}
+        WHERE id = ${id}
+        RETURNING *
+      `;
+
+      res.json(updated[0]);
+    } catch (err) {
+      console.error("Update project error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+// Delete project
+app.delete("/investor/projects/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify ownership
+    const existing = await sql`
+      SELECT * FROM projects WHERE id = ${id} AND farmer_id = ${req.user.id}
+    `;
+    if (existing.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "Project not found or not owned by you" });
+    }
+
+    await sql`DELETE FROM projects WHERE id = ${id}`;
+    res.json({ message: "Project deleted successfully" });
+  } catch (err) {
+    console.error("Delete project error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
 // Get all projects
 app.get("/investor/projects", async (req, res) => {
@@ -552,6 +670,129 @@ app.post(
     }
   }
 );
+
+// Update rental
+app.put(
+  "/rentals/:id",
+  authenticateToken,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        type,
+        name,
+        description,
+        location,
+        price_per_day,
+        price_per_hour,
+        price_per_month,
+      } = req.body;
+
+      // Get existing rental to verify ownership
+      const existing = await sql`
+        SELECT * FROM rentals WHERE id = ${id} AND owner_id = ${req.user.id}
+      `;
+      if (existing.length === 0) {
+        return res
+          .status(404)
+          .json({ error: "Rental not found or not owned by you" });
+      }
+
+      let imageUrl = existing[0].image_url;
+      if (req.file) {
+        imageUrl = await uploadImage(req.file);
+      }
+
+      const updated = await sql`
+        UPDATE rentals
+        SET
+          type = ${type || existing[0].type},
+          name = ${name || existing[0].name},
+          description = ${description || existing[0].description},
+          location = ${location || existing[0].location},
+          price_per_day = ${price_per_day ? Number(price_per_day) : existing[0].price_per_day},
+          price_per_hour = ${price_per_hour ? Number(price_per_hour) : existing[0].price_per_hour},
+          price_per_month = ${price_per_month ? Number(price_per_month) : existing[0].price_per_month},
+          image_url = ${imageUrl}
+        WHERE id = ${id}
+        RETURNING *
+      `;
+
+      res.json(updated[0]);
+    } catch (err) {
+      console.error("Update rental error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+// Delete rental
+app.delete("/rentals/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify ownership
+    const existing = await sql`
+      SELECT * FROM rentals WHERE id = ${id} AND owner_id = ${req.user.id}
+    `;
+    if (existing.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "Rental not found or not owned by you" });
+    }
+
+    await sql`DELETE FROM rentals WHERE id = ${id}`;
+    res.json({ message: "Rental deleted successfully" });
+  } catch (err) {
+    console.error("Delete rental error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get single rental by ID
+app.get("/rentals/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch rental + owner info
+    const rental = await sql`
+      SELECT 
+        r.*, 
+        u.name AS owner_name, 
+        u.email AS owner_email
+      FROM rentals r
+      JOIN users u ON r.owner_id = u.id
+      WHERE r.id = ${id}
+    `;
+
+    if (rental.length === 0) {
+      return res.status(404).json({ error: "Rental not found" });
+    }
+
+    // Optionally check booking availability
+    const activeBooking = await sql`
+      SELECT * FROM bookings 
+      WHERE rental_id = ${id} 
+        AND status = 'active'
+      ORDER BY end_date DESC
+      LIMIT 1
+    `;
+
+    const available = activeBooking.length === 0;
+
+    res.json({
+      ...rental[0],
+      availability: available ? "available" : "booked",
+      last_booking: activeBooking[0] || null,
+    });
+  } catch (err) {
+    console.error("Get rental error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
 
 // ✅ List bookings (auto-refresh status + pagination + optional filter by farmer)
 app.get("/bookings/list", authenticateToken, async (req, res) => {
@@ -902,6 +1143,56 @@ app.get("/bookings/my-bookings", authenticateToken, async (req, res) => {
 });
 
 // --- ADMIN DASHBOARD ENDPOINTS ---
+
+// Admin Stats Dashboard
+app.get("/admin/stats", authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Access denied: Admins only" });
+    }
+
+    const [
+      totalUsers,
+      totalFarmers,
+      totalInvestors,
+      totalRentals,
+      totalProjects,
+      activeBookings,
+      completedBookings,
+      totalRaised,
+      totalGoals,
+    ] = await Promise.all([
+      sql`SELECT COUNT(*) FROM users`,
+      sql`SELECT COUNT(*) FROM users WHERE role = 'farmer'`,
+      sql`SELECT COUNT(*) FROM users WHERE role = 'investor'`,
+      sql`SELECT COUNT(*) FROM rentals`,
+      sql`SELECT COUNT(*) FROM projects`,
+      sql`SELECT COUNT(*) FROM bookings WHERE status = 'active'`,
+      sql`SELECT COUNT(*) FROM bookings WHERE status = 'completed'`,
+      sql`SELECT COALESCE(SUM(amount_raised), 0) FROM projects`,
+      sql`SELECT COALESCE(SUM(funding_goal), 0) FROM projects`,
+    ]);
+
+    res.json({
+      users: Number(totalUsers[0].count),
+      farmers: Number(totalFarmers[0].count),
+      investors: Number(totalInvestors[0].count),
+      rentals: Number(totalRentals[0].count),
+      projects: Number(totalProjects[0].count),
+      bookings: {
+        active: Number(activeBookings[0].count),
+        completed: Number(completedBookings[0].count),
+      },
+      funding: {
+        total_raised: Number(totalRaised[0].coalesce || totalRaised[0].sum || 0),
+        total_goals: Number(totalGoals[0].coalesce || totalGoals[0].sum || 0),
+      },
+    });
+  } catch (err) {
+    console.error("Admin stats error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // Admin: Get all users
 app.get("/admin/users", authenticateToken, async (req, res) => {
