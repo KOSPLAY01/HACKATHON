@@ -85,11 +85,15 @@ app.get("/", (req, res) => {
 app.post("/auth/register", upload.single("image"), async (req, res) => {
   const { email, password, name, role, phoneNumber } = req.body;
   if (!email || !password || !name)
-    return res.status(400).json({ error: "Email, password, and name are required" });
+    return res
+      .status(400)
+      .json({ error: "Email, password, and name are required" });
 
   // Validate role
   if (!["farmer", "investor", "admin"].includes(role)) {
-    return res.status(400).json({ error: "Invalid role. Must be farmer, investor, or admin." });
+    return res
+      .status(400)
+      .json({ error: "Invalid role. Must be farmer, investor, or admin." });
   }
 
   try {
@@ -108,7 +112,9 @@ app.post("/auth/register", upload.single("image"), async (req, res) => {
     // Insert user
     const insertedUser = await sql`
       INSERT INTO users (email, password, name, profile_image_url, role, phone_number)
-      VALUES (${email}, ${hashedPassword}, ${name}, ${imageUrl}, ${role}, ${phoneNumber || null})
+      VALUES (${email}, ${hashedPassword}, ${name}, ${imageUrl}, ${role}, ${
+      phoneNumber || null
+    })
       RETURNING id, name, email, role, profile_image_url, phone_number, created_at
     `;
     const user = insertedUser[0];
@@ -188,7 +194,8 @@ app.put(
       if (email !== undefined) {
         // Check if new email exists
         if (email && email !== req.user.email) {
-          const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+          const existing =
+            await sql`SELECT id FROM users WHERE email = ${email}`;
           if (existing.length > 0) {
             return res.status(400).json({ error: "Email already in use" });
           }
@@ -237,7 +244,9 @@ app.post("/auth/forgot-password", async (req, res) => {
     const user = users[0];
     if (!user) {
       // Don't reveal if user exists
-      return res.json({ message: "If the account exists, a reset email has been sent." });
+      return res.json({
+        message: "If the account exists, a reset email has been sent.",
+      });
     }
 
     const resetToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
@@ -258,7 +267,9 @@ app.post("/auth/forgot-password", async (req, res) => {
       `,
     });
 
-    res.json({ message: "If the account exists, a reset email has been sent." });
+    res.json({
+      message: "If the account exists, a reset email has been sent.",
+    });
   } catch (err) {
     console.error("Forgot password error:", err);
     res.status(500).json({ error: "Failed to send reset email" });
@@ -269,7 +280,9 @@ app.post("/auth/forgot-password", async (req, res) => {
 app.post("/auth/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: "Valid token and new password (min 6 chars) required" });
+    return res
+      .status(400)
+      .json({ error: "Valid token and new password (min 6 chars) required" });
   }
 
   try {
@@ -289,7 +302,7 @@ app.post("/auth/reset-password", async (req, res) => {
     res.json({ message: "Password reset successfully" });
   } catch (err) {
     console.error("Reset password error:", err);
-    if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError') {
+    if (err.name === "TokenExpiredError" || err.name === "JsonWebTokenError") {
       return res.status(400).json({ error: "Invalid or expired token" });
     }
     res.status(500).json({ error: "Internal server error" });
@@ -305,12 +318,16 @@ app.post(
   upload.single("image"),
   async (req, res) => {
     if (req.user.role !== "farmer") {
-      return res.status(403).json({ error: "Only farmers can create projects" });
+      return res
+        .status(403)
+        .json({ error: "Only farmers can create projects" });
     }
 
     const { project_title, description, funding_goal } = req.body;
     if (!project_title || !funding_goal || funding_goal <= 0) {
-      return res.status(400).json({ error: "Valid title and funding goal are required" });
+      return res
+        .status(400)
+        .json({ error: "Valid title and funding goal are required" });
     }
 
     try {
@@ -321,7 +338,9 @@ app.post(
 
       const project = await sql`
         INSERT INTO projects (farmer_id, project_title, description, funding_goal, amount_raised, status, image_url)
-        VALUES (${req.user.id}, ${project_title}, ${description || null}, ${Number(funding_goal)}, 0, 'open', ${imageUrl})
+        VALUES (${req.user.id}, ${project_title}, ${
+        description || null
+      }, ${Number(funding_goal)}, 0, 'open', ${imageUrl})
         RETURNING *
       `;
       res.status(201).json(project[0]);
@@ -347,7 +366,12 @@ app.get("/investor/projects", async (req, res) => {
     const total = await sql`SELECT COUNT(*) FROM projects`;
     res.json({
       projects,
-      pagination: { page: Number(page), limit: Number(limit), total: Number(total[0].count), pages: Math.ceil(Number(total[0].count) / Number(limit)) }
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: Number(total[0].count),
+        pages: Math.ceil(Number(total[0].count) / Number(limit)),
+      },
     });
   } catch (err) {
     console.error("Get projects error:", err);
@@ -372,7 +396,8 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
     // Use transaction for atomicity
     const result = await sql`BEGIN`;
     try {
-      const projects = await sql`SELECT * FROM projects WHERE id = ${projectId} FOR UPDATE`;
+      const projects =
+        await sql`SELECT * FROM projects WHERE id = ${projectId} FOR UPDATE`;
       const project = projects[0];
       if (!project) {
         await sql`ROLLBACK`;
@@ -402,10 +427,10 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
 
       // Notify farmer
       const notifyMsg = `Your project "${project.project_title}" has received $${amount} in funding!`;
-      await sql`
-        INSERT INTO notifications (user_id, message, read)
-        VALUES (${project.farmer_id}, ${notifyMsg}, false)
-      `;
+      await sql.unsafe(
+        "INSERT INTO notifications (user_id, message, read) VALUES ($1, $2, $3)",
+        [project.farmer_id, notifyMsg, false]
+      );
 
       await sql`COMMIT`;
       res.json({ ...updated[0], fundedAmount: Number(amount) });
@@ -416,13 +441,14 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
   } catch (err) {
     console.error("Fund project error:", err);
     // If investments table doesn't exist, it's ok, project still updates but log
-    if (err.message.includes('investments')) {
+    if (err.message.includes("investments")) {
       console.warn("Investments table not found, skipping investment record");
       // Still update project without transaction for investments
       try {
-        const projects = await sql`SELECT * FROM projects WHERE id = ${projectId}`;
+        const projects =
+          await sql`SELECT * FROM projects WHERE id = ${projectId}`;
         const project = projects[0];
-        if (project && project.status === 'open') {
+        if (project && project.status === "open") {
           const newRaised = Number(project.amount_raised) + Number(amount);
           let status = project.status;
           if (newRaised >= project.funding_goal) status = "funded";
@@ -430,7 +456,10 @@ app.post("/investor/fund/:id", authenticateToken, async (req, res) => {
             UPDATE projects SET amount_raised = ${newRaised}, status = ${status} WHERE id = ${projectId} RETURNING *
           `;
           const notifyMsg = `Your project "${project.project_title}" has received $${amount} in funding!`;
-          await sql`INSERT INTO notifications (user_id, message, read) VALUES (${project.farmer_id}, ${notifyMsg}, false)`;
+          await sql.unsafe(
+            "INSERT INTO notifications (user_id, message, read) VALUES ($1, $2, $3)",
+            [project.farmer_id, notifyMsg, false]
+          );
           res.json(updated[0]);
           return;
         }
@@ -465,13 +494,22 @@ app.post(
 
     // Validate type
     if (!type || !["farm", "equipment"].includes(type)) {
-      return res.status(400).json({ error: 'Type must be either "farm" or "equipment"' });
+      return res
+        .status(400)
+        .json({ error: 'Type must be either "farm" or "equipment"' });
     }
 
     // Validate required fields
-    if (!name || !description || !location || !price_per_day || Number(price_per_day) <= 0) {
+    if (
+      !name ||
+      !description ||
+      !location ||
+      !price_per_day ||
+      Number(price_per_day) <= 0
+    ) {
       return res.status(400).json({
-        error: "Name, description, location, and valid price per day are required",
+        error:
+          "Name, description, location, and valid price per day are required",
       });
     }
 
@@ -515,135 +553,187 @@ app.post(
   }
 );
 
-// List rentals (both farms and equipment, with filter option)
-app.get("/rentals/list", async (req, res) => {
-  const { type, page = 1, limit = 10 } = req.query; // optional filter and pagination
-  try {
-    let query = sql`SELECT r.*, u.name AS owner_name FROM rentals r JOIN users u ON r.owner_id = u.id`;
-    let countQuery = sql`SELECT COUNT(*) FROM rentals`;
-    let params = [];
+// ✅ List bookings (auto-refresh status + pagination + optional filter by farmer)
+app.get("/bookings/list", authenticateToken, async (req, res) => {
+  const { page = 1, limit = 10, farmer_id } = req.query;
 
-    if (type && ["farm", "equipment"].includes(type)) {
-      query = sql`SELECT r.*, u.name AS owner_name FROM rentals r JOIN users u ON r.owner_id = u.id WHERE r.type = ${type}`;
-      countQuery = sql`SELECT COUNT(*) FROM rentals WHERE type = ${type}`;
+  try {
+    // 🧠 Step 0: Auto-complete expired bookings
+    await sql`
+      UPDATE bookings
+      SET status = 'completed'
+      WHERE status = 'active'
+      AND (end_date + end_time) <= NOW()
+    `;
+
+    // 🧭 Step 1: Base query with rental and user info
+    let query = sql`
+      SELECT b.*, r.name AS rental_name, r.type AS rental_type, u.name AS farmer_name
+      FROM bookings b
+      JOIN rentals r ON b.rental_id = r.id
+      JOIN users u ON b.farmer_id = u.id
+    `;
+
+    let countQuery = sql`SELECT COUNT(*) FROM bookings b`;
+
+    // 🧩 Optional filter by farmer_id
+    if (farmer_id) {
+      query = sql`
+        SELECT b.*, r.name AS rental_name, r.type AS rental_type, u.name AS farmer_name
+        FROM bookings b
+        JOIN rentals r ON b.rental_id = r.id
+        JOIN users u ON b.farmer_id = u.id
+        WHERE b.farmer_id = ${farmer_id}
+      `;
+      countQuery = sql`
+        SELECT COUNT(*) 
+        FROM bookings b
+        WHERE b.farmer_id = ${farmer_id}
+      `;
     }
 
+    // 🧾 Step 2: Pagination
     const offset = (Number(page) - 1) * Number(limit);
-    query.append(sql` ORDER BY r.created_at DESC LIMIT ${Number(limit)} OFFSET ${offset}`);
-    const rentals = await query;
+    query.append(sql` ORDER BY b.created_at DESC LIMIT ${Number(limit)} OFFSET ${offset}`);
 
+    // 🗂 Step 3: Execute
+    const bookings = await query;
     const totalRes = await countQuery;
     const total = totalRes[0].count;
 
     res.json({
-      rentals,
-      pagination: { 
-        page: Number(page), 
-        limit: Number(limit), 
-        total: Number(total), 
-        pages: Math.ceil(Number(total) / Number(limit)) 
-      }
+      bookings,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: Number(total),
+        pages: Math.ceil(Number(total) / Number(limit)),
+      },
     });
   } catch (err) {
-    console.error("List rentals error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("List bookings error:", err);
+    res.status(500).json({ error: "Internal server error." });
   }
 });
 
-// Book rental with duration
+// ✅ Book a rental (auto-disable availability + completed booking check)
 app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
   if (req.user.role !== "farmer") {
     return res.status(403).json({ error: "Only farmers can book rentals" });
   }
 
   const { start_date, start_time, end_date, end_time } = req.body;
-  if (!start_date || !start_time || !end_date || !end_time) {
-    return res.status(400).json({ error: "Start and end date + time required" });
-  }
-
   const rentalId = Number(req.params.id);
 
+  if (!start_date || !start_time || !end_date || !end_time) {
+    return res
+      .status(400)
+      .json({ error: "Start and end date + time are required." });
+  }
+
+  if (isNaN(rentalId)) {
+    return res.status(400).json({ error: "Invalid rental ID." });
+  }
+
   try {
-    // Validate dates
     const start_datetime = new Date(`${start_date}T${start_time}:00`);
     const end_datetime = new Date(`${end_date}T${end_time}:00`);
 
-    if (isNaN(start_datetime.getTime()) || isNaN(end_datetime.getTime())) {
-      return res.status(400).json({ error: "Invalid date or time format. Use YYYY-MM-DD and HH:MM" });
-    }
     if (end_datetime <= start_datetime) {
-      return res.status(400).json({ error: "End time must be after start time" });
+      return res
+        .status(400)
+        .json({ error: "End time must be after start time." });
     }
 
-    const rentals = await sql`SELECT * FROM rentals WHERE id = ${rentalId}`;
-    const rental = rentals[0];
-    if (!rental) return res.status(404).json({ error: "Rental not found" });
+    // 🧠 Step 0: Auto-complete expired bookings
+    await sql`
+      UPDATE bookings
+      SET status = 'completed'
+      WHERE status = 'active'
+      AND (end_date + end_time) <= NOW()
+    `;
 
-    // Conflict check - assuming start_date date, start_time time columns
-    const conflicts = await sql`
-      SELECT * FROM bookings
-      WHERE rental_id = ${rentalId}
-      AND status = 'active'
-      AND (
-        (start_date + start_time)::timestamp < ${end_datetime} 
-        AND (end_date + end_time)::timestamp > ${start_datetime}
+    // 🧠 Step 1: Refresh rental availability based on completed bookings
+    await sql`
+      UPDATE rentals
+      SET is_available = true
+      WHERE id IN (
+        SELECT rental_id FROM bookings
+        WHERE status = 'completed'
       )
     `;
-    if (conflicts.length > 0) {
-      return res.status(400).json({ error: "Rental not available for selected time period" });
+
+    // 🧭 Step 2: Fetch rental
+    const rentals = await sql`SELECT * FROM rentals WHERE id = ${rentalId}`;
+    const rental = rentals[0];
+    if (!rental)
+      return res.status(404).json({ error: "Rental not found." });
+    if (!rental.is_available) {
+      return res
+        .status(400)
+        .json({ error: "This rental is currently unavailable." });
     }
 
-    // Duration calculation
+    // 💰 Step 3: Calculate pricing
     const diffMs = end_datetime - start_datetime;
     const hours = diffMs / (1000 * 60 * 60);
     const days = diffMs / (1000 * 60 * 60 * 24);
 
-    // Cost calculation - prioritize hour > day > month
+    const pricePerHour = Number(rental.price_per_hour) || 0;
+    const pricePerDay = Number(rental.price_per_day) || 0;
+    const pricePerMonth = Number(rental.price_per_month) || 0;
+
     let totalCost = 0;
-    if (rental.price_per_hour && hours < 24) {
-      totalCost = Math.ceil(hours) * Number(rental.price_per_hour);
-    } else if (rental.price_per_day) {
-      totalCost = Math.ceil(days) * Number(rental.price_per_day);
-    } else if (rental.price_per_month) {
-      const months = Math.ceil(days / 30);
-      totalCost = months * Number(rental.price_per_month);
+    if (pricePerHour > 0 && hours < 24) {
+      totalCost = Math.ceil(hours) * pricePerHour;
+    } else if (pricePerDay > 0 && days < 30) {
+      totalCost = Math.ceil(days) * pricePerDay;
+    } else if (pricePerMonth > 0) {
+      totalCost = Math.ceil(days / 30) * pricePerMonth;
     } else {
-      return res.status(400).json({ error: "Rental has no pricing configured" });
+      return res.status(400).json({
+        error: "This rental has no valid pricing configured.",
+        debug: { pricePerHour, pricePerDay, pricePerMonth },
+      });
     }
 
-    if (totalCost <= 0) {
-      return res.status(400).json({ error: "Invalid pricing for duration" });
-    }
-
-    // Use transaction
+    // 🧾 Step 4: Begin transaction
     await sql`BEGIN`;
     try {
+      // Create booking with 'active' status
       const booking = await sql`
-        INSERT INTO bookings 
-          (rental_id, farmer_id, start_date, start_time, end_date, end_time, total_cost, status)
-        VALUES 
-          (${rentalId}, ${req.user.id}, ${start_date}, ${start_time}, ${end_date}, ${end_time}, ${totalCost}, 'active')
+        INSERT INTO bookings (rental_id, farmer_id, start_date, start_time, end_date, end_time, total_cost, status)
+        VALUES (${rentalId}, ${req.user.id}, ${start_date}, ${start_time}, ${end_date}, ${end_time}, ${totalCost}, 'active')
         RETURNING *
       `;
 
+      // Mark rental unavailable immediately
+      await sql`UPDATE rentals SET is_available = false WHERE id = ${rentalId}`;
+
       // Notify owner
-      const bookingNotify = `Your ${rental.type} "${rental.name}" has been booked by ${req.user.name} from ${start_date} ${start_time} to ${end_date} ${end_time} for $${totalCost}.`;
+      const bookingNotify = `Your ${rental.type} "${rental.name}" has been booked by ${req.user.name} from ${start_date} ${start_time} to ${end_date} ${end_time} for ₦${totalCost}.`;
       await sql`
         INSERT INTO notifications (user_id, message, read)
-        VALUES (${rental.owner_id}, ${bookingNotify}, false)
+        VALUES (${rental.owner_id}, ${bookingNotify}, ${false})
       `;
 
       await sql`COMMIT`;
-      res.status(201).json(booking[0]);
+
+      res.status(201).json({
+        message: "Booking successful!",
+        booking: booking[0],
+      });
     } catch (txErr) {
       await sql`ROLLBACK`;
-      throw txErr;
+      console.error("Booking transaction failed:", txErr);
+      res.status(500).json({ error: "Booking transaction failed." });
     }
   } catch (err) {
     console.error("Book rental error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error." });
   }
 });
+
 
 // --- Notifications ---
 
@@ -652,30 +742,33 @@ app.get("/notifications", authenticateToken, async (req, res) => {
   try {
     const { page = 1, limit = 20, unread = false } = req.query;
     let query = sql`SELECT * FROM notifications WHERE user_id = ${req.user.id}`;
-    if (unread === 'true') {
+    if (unread === "true") {
       query = sql`SELECT * FROM notifications WHERE user_id = ${req.user.id} AND read = false`;
     }
     const offset = (Number(page) - 1) * Number(limit);
-    query.append(sql` ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${offset}`);
+    query.append(
+      sql` ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${offset}`
+    );
 
     const notes = await query;
 
     // Mark all as read if requested? No, separate endpoint
 
-    const totalQuery = unread === 'true' 
-      ? sql`SELECT COUNT(*) FROM notifications WHERE user_id = ${req.user.id} AND read = false`
-      : sql`SELECT COUNT(*) FROM notifications WHERE user_id = ${req.user.id}`;
+    const totalQuery =
+      unread === "true"
+        ? sql`SELECT COUNT(*) FROM notifications WHERE user_id = ${req.user.id} AND read = false`
+        : sql`SELECT COUNT(*) FROM notifications WHERE user_id = ${req.user.id}`;
     const totalRes = await totalQuery;
     const total = totalRes[0].count;
 
     res.json({
       notifications: notes,
-      pagination: { 
-        page: Number(page), 
-        limit: Number(limit), 
-        total: Number(total), 
-        pages: Math.ceil(Number(total) / Number(limit)) 
-      }
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: Number(total),
+        pages: Math.ceil(Number(total) / Number(limit)),
+      },
     });
   } catch (err) {
     console.error("Get notifications error:", err);
@@ -742,7 +835,9 @@ app.get("/investor/my-projects", authenticateToken, async (req, res) => {
 // Investor: Get my investments
 app.get("/investor/my-investments", authenticateToken, async (req, res) => {
   if (req.user.role !== "investor") {
-    return res.status(403).json({ error: "Only investors can view their investments" });
+    return res
+      .status(403)
+      .json({ error: "Only investors can view their investments" });
   }
 
   try {
@@ -764,7 +859,9 @@ app.get("/investor/my-investments", authenticateToken, async (req, res) => {
 // Farmer: Get my rentals
 app.get("/rentals/my-listings", authenticateToken, async (req, res) => {
   if (req.user.role !== "farmer") {
-    return res.status(403).json({ error: "Only farmers can view their rentals" });
+    return res
+      .status(403)
+      .json({ error: "Only farmers can view their rentals" });
   }
 
   try {
@@ -781,7 +878,9 @@ app.get("/rentals/my-listings", authenticateToken, async (req, res) => {
 // Farmer: Get my bookings
 app.get("/bookings/my-bookings", authenticateToken, async (req, res) => {
   if (req.user.role !== "farmer") {
-    return res.status(403).json({ error: "Only farmers can view their bookings" });
+    return res
+      .status(403)
+      .json({ error: "Only farmers can view their bookings" });
   }
 
   try {
@@ -819,7 +918,12 @@ app.get("/admin/users", authenticateToken, async (req, res) => {
     const total = await sql`SELECT COUNT(*) FROM users`;
     res.json({
       users,
-      pagination: { page: Number(page), limit: Number(limit), total: Number(total[0].count), pages: Math.ceil(Number(total[0].count) / Number(limit)) }
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: Number(total[0].count),
+        pages: Math.ceil(Number(total[0].count) / Number(limit)),
+      },
     });
   } catch (err) {
     console.error("Admin get users error:", err);
@@ -897,7 +1001,9 @@ app.get("/admin/bookings", authenticateToken, async (req, res) => {
 // Admin: Get all notifications
 app.get("/admin/notifications", authenticateToken, async (req, res) => {
   if (req.user.role !== "admin") {
-    return res.status(403).json({ error: "Only admins can view all notifications" });
+    return res
+      .status(403)
+      .json({ error: "Only admins can view all notifications" });
   }
 
   try {
