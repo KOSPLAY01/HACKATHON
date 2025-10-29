@@ -736,38 +736,41 @@ app.post("/rentals/book/:id", authenticateToken, async (req, res) => {
 
 
 // --- Notifications ---
-
-// Get my notifications
+// ✅ Get my notifications (with pagination + unread filter)
 app.get("/notifications", authenticateToken, async (req, res) => {
   try {
-    const { page = 1, limit = 20, unread = false } = req.query;
-    let query = sql`SELECT * FROM notifications WHERE user_id = ${req.user.id}`;
-    if (unread === "true") {
-      query = sql`SELECT * FROM notifications WHERE user_id = ${req.user.id} AND read = false`;
-    }
+    const { page = 1, limit = 20, unread = "false" } = req.query;
+
     const offset = (Number(page) - 1) * Number(limit);
-    query.append(
-      sql` ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${offset}`
-    );
 
-    const notes = await query;
+    // 🧠 Base WHERE condition
+    let whereClause = sql`WHERE user_id = ${req.user.id}`;
+    if (unread === "true") {
+      whereClause = sql`WHERE user_id = ${req.user.id} AND read = false`;
+    }
 
-    // Mark all as read if requested? No, separate endpoint
+    // 🗂 Fetch notifications
+    const notifications = await sql`
+      SELECT *
+      FROM notifications
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT ${Number(limit)} OFFSET ${offset}
+    `;
 
-    const totalQuery =
-      unread === "true"
-        ? sql`SELECT COUNT(*) FROM notifications WHERE user_id = ${req.user.id} AND read = false`
-        : sql`SELECT COUNT(*) FROM notifications WHERE user_id = ${req.user.id}`;
-    const totalRes = await totalQuery;
-    const total = totalRes[0].count;
+    // 📊 Count total
+    const totalRes = await sql`
+      SELECT COUNT(*) FROM notifications ${whereClause}
+    `;
+    const total = Number(totalRes[0].count);
 
     res.json({
-      notifications: notes,
+      notifications,
       pagination: {
         page: Number(page),
         limit: Number(limit),
-        total: Number(total),
-        pages: Math.ceil(Number(total) / Number(limit)),
+        total,
+        pages: Math.ceil(total / Number(limit)),
       },
     });
   } catch (err) {
