@@ -671,6 +671,25 @@ app.post(
   }
 );
 
+// Farmer: Get my rentals
+app.get("/rentals/my-listings", authenticateToken, async (req, res) => {
+  if (req.user.role !== "farmer") {
+    return res
+      .status(403)
+      .json({ error: "Only farmers can view their rentals" });
+  }
+
+  try {
+    const rentals = await sql`
+      SELECT * FROM rentals WHERE owner_id = ${req.user.id} ORDER BY created_at DESC
+    `;
+    res.json(rentals);
+  } catch (err) {
+    console.error("Get my rentals error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Update rental
 app.put(
   "/rentals/:id",
@@ -1100,24 +1119,7 @@ app.get("/investor/my-investments", authenticateToken, async (req, res) => {
   }
 });
 
-// Farmer: Get my rentals
-app.get("/rentals/my-listings", authenticateToken, async (req, res) => {
-  if (req.user.role !== "farmer") {
-    return res
-      .status(403)
-      .json({ error: "Only farmers can view their rentals" });
-  }
 
-  try {
-    const rentals = await sql`
-      SELECT * FROM rentals WHERE owner_id = ${req.user.id} ORDER BY created_at DESC
-    `;
-    res.json(rentals);
-  } catch (err) {
-    console.error("Get my rentals error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
 
 // Farmer: Get my bookings
 app.get("/bookings/my-bookings", authenticateToken, async (req, res) => {
