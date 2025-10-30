@@ -400,34 +400,53 @@ app.post(
   }
 );
 
-// Get specific project by ID
-app.get("/investor/projects/:id", async (req, res) => {
-  const { id } = req.params;
-
-  // Validate ID is a number
-  if (isNaN(id)) {
-    return res.status(400).json({ error: "Invalid project ID" });
-  }
-
+// Get single project by ID
+app.get("/projects/:id", authenticateToken, async (req, res) => {
   try {
+    const { id } = req.params;
+
+    // Query the project and include owner (farmer) info
     const project = await sql`
-      SELECT p.*, u.full_name AS farmer_name, u.email AS farmer_email
+      SELECT 
+        p.*, 
+        u.name AS farmer_name, 
+        u.email AS farmer_email,
+        u.phone AS farmer_phone
       FROM projects p
       JOIN users u ON p.farmer_id = u.id
       WHERE p.id = ${id}
-      LIMIT 1
     `;
 
     if (project.length === 0) {
       return res.status(404).json({ error: "Project not found" });
     }
 
-    res.json(project[0]);
+    // Optional: Include funding stats if investors exist
+    const funding = await sql`
+      SELECT 
+        COALESCE(SUM(amount), 0) AS total_invested,
+        COUNT(DISTINCT investor_id) AS total_investors
+      FROM investments
+      WHERE project_id = ${id}
+    `;
+
+    const data = {
+      ...project[0],
+      total_invested: Number(funding[0].total_invested),
+      total_investors: Number(funding[0].total_investors),
+      funding_progress: (
+        (Number(funding[0].total_invested) / Number(project[0].target_amount)) *
+        100
+      ).toFixed(2),
+    };
+
+    res.json(data);
   } catch (err) {
     console.error("Get project error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 
 // Update project
