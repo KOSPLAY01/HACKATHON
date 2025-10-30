@@ -400,6 +400,36 @@ app.post(
   }
 );
 
+// Get specific project by ID
+app.get("/investor/projects/:id", async (req, res) => {
+  const { id } = req.params;
+
+  // Validate ID is a number
+  if (isNaN(id)) {
+    return res.status(400).json({ error: "Invalid project ID" });
+  }
+
+  try {
+    const project = await sql`
+      SELECT p.*, u.full_name AS farmer_name, u.email AS farmer_email
+      FROM projects p
+      JOIN users u ON p.farmer_id = u.id
+      WHERE p.id = ${id}
+      LIMIT 1
+    `;
+
+    if (project.length === 0) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    res.json(project[0]);
+  } catch (err) {
+    console.error("Get project error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
 // Update project
 app.put(
   "/investor/projects/:id",
