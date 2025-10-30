@@ -400,18 +400,16 @@ app.post(
   }
 );
 
-// Get single project by ID
+// Get single project by ID (Investor view)
 app.get("/investor/projects/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Query the project and include owner (farmer) info
     const project = await sql`
       SELECT 
         p.*, 
         u.name AS farmer_name, 
-        u.email AS farmer_email,
-        u.phone AS farmer_phone
+        u.email AS farmer_email
       FROM projects p
       JOIN users u ON p.farmer_id = u.id
       WHERE p.id = ${id}
@@ -421,7 +419,7 @@ app.get("/investor/projects/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "Project not found" });
     }
 
-    // Optional: Include funding stats if investors exist
+    // Get funding stats
     const funding = await sql`
       SELECT 
         COALESCE(SUM(amount), 0) AS total_invested,
@@ -446,7 +444,6 @@ app.get("/investor/projects/:id", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 
 
 // Update project
