@@ -401,7 +401,7 @@ app.post(
 );
 
 // Get single project by ID
-app.get("/projects/:id", authenticateToken, async (req, res) => {
+app.get("investor/projects/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
