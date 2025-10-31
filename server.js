@@ -1085,6 +1085,22 @@ app.get("/notifications", authenticateToken, async (req, res) => {
   }
 });
 
+// Mark all notifications as read
+app.put("/notifications/read-all", authenticateToken, async (req, res) => {
+  try {
+    const updated = await sql`
+      UPDATE notifications 
+      SET read = true, updated_at = now() 
+      WHERE user_id = ${req.user.id} AND read = false
+      RETURNING *
+    `;
+    res.json({ message: `Marked ${updated.length} notifications as read` });
+  } catch (err) {
+    console.error("Mark all read error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Mark notification as read
 app.put("/notifications/:id/read", authenticateToken, async (req, res) => {
   try {
@@ -1105,21 +1121,7 @@ app.put("/notifications/:id/read", authenticateToken, async (req, res) => {
   }
 });
 
-// Mark all notifications as read
-app.put("/notifications/read-all", authenticateToken, async (req, res) => {
-  try {
-    const updated = await sql`
-      UPDATE notifications 
-      SET read = true, updated_at = now() 
-      WHERE user_id = ${req.user.id} AND read = false
-      RETURNING *
-    `;
-    res.json({ message: `Marked ${updated.length} notifications as read` });
-  } catch (err) {
-    console.error("Mark all read error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+
 
 // --- DASHBOARD ENDPOINTS ---
 
