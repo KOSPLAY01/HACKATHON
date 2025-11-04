@@ -253,7 +253,7 @@ app.post("/auth/forgot-password", async (req, res) => {
       expiresIn: "15m",
     });
 
-    const resetUrl = `http://localhost:3000/reset-password?token=${resetToken}`; // Changed to http for local
+    const resetUrl = `https://agri-ease-frontend.vercel.app/reset-password?token=${resetToken}`; // Changed to http for local
 
     await transporter.sendMail({
       from: `"Hackathon App" <${process.env.EMAIL_USER}>`,
